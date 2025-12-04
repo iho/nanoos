@@ -23,16 +23,43 @@ fn main() {
     let _ = std::fs::create_dir_all("/dev/pts");
     let _ = Command::new("/bin/mount").args(&["-t", "devpts", "devpts", "/dev/pts"]).status();
 
-    println!("Filesystems mounted.");
+    // Network Setup
+    println!("Setting up network...");
+    
+    // List PCI devices to debug what hardware the kernel sees
+    let _ = Command::new("/bin/busybox").args(&["lspci", "-k"]).status();
+
+    // List interfaces for debugging
+    let _ = Command::new("/bin/busybox").args(&["ip", "link"]).status();
+
+    // Loopback
+    let _ = Command::new("/bin/busybox").args(&["ip", "link", "set", "lo", "up"]).status();
+    
+    // eth0 (QEMU User Net usually provides this)
+    // We try to bring it up. If it's named differently (e.g. enp0s3), this might fail, 
+    // but ip link above will tell us.
+    let _ = Command::new("/bin/busybox").args(&["ip", "link", "set", "eth0", "up"]).status();
+    let _ = Command::new("/bin/busybox").args(&["ip", "addr", "add", "10.0.2.15/24", "dev", "eth0"]).status();
+    let _ = Command::new("/bin/busybox").args(&["ip", "route", "add", "default", "via", "10.0.2.2"]).status();
+    
+    // DNS
+    let _ = std::fs::create_dir_all("/etc");
+    let _ = std::fs::write("/etc/resolv.conf", "nameserver 1.1.1.1\n");
+
+    println!("Filesystems mounted. Network configured.");
     
     loop {
         println!("Launching Nushell via cttyhack...");
+
+        // Attempt to sanitize terminal before launch
+        let _ = Command::new("/bin/busybox").args(&["stty", "sane"]).status();
 
         // Use busybox setsid + cttyhack to set up the controlling terminal properly
         let status = Command::new("/bin/busybox")
             .arg("setsid")
             .arg("cttyhack")
             .env("TERM", "linux")
+            .env("PATH", "/bin:/usr/bin")
             .arg("/bin/nu")
             .status();
 

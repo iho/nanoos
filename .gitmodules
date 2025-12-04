@@ -7,3 +7,9 @@
 [submodule "nushell"]
 	path = nushell
 	url = https://github.com/nushell/nushell
+[submodule "zlib-source"]
+	path = zlib-source
+	url = https://github.com/madler/zlib.git
+[submodule "git-source"]
+	path = git-source
+	url = https://github.com/git/git.git
