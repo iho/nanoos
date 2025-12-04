@@ -2,6 +2,7 @@ KERNEL_DIR = linux
 BUSYBOX_DIR = busybox
 INIT_DIR = init_system
 NUSHELL_DIR = nushell
+ZEN_DIR = zen
 BUILD_DIR = build
 ROOTFS_DIR = $(BUILD_DIR)/rootfs
 
@@ -88,6 +89,22 @@ $(ROOTFS_DIR)/bin/nu: nushell-build
 	@echo "Verifying Nushell binary..."
 	file $(ROOTFS_DIR)/bin/nu
 
+# Zen (Wayland Compositor)
+.PHONY: zen-build
+zen-build:
+	cd $(ZEN_DIR) && \
+	export CC_x86_64_unknown_linux_musl=musl-gcc && \
+	export PKG_CONFIG_PATH=$(abspath $(BUILD_DIR)/sysroot/lib/pkgconfig):$(abspath $(BUILD_DIR)/sysroot/lib64/pkgconfig):$(abspath $(BUILD_DIR)/sysroot/share/pkgconfig) && \
+	export PKG_CONFIG_ALLOW_CROSS=1 && \
+	export PKG_CONFIG_SYSROOT_DIR=$(abspath $(BUILD_DIR)/sysroot) && \
+	export LIBSEAT_STATIC=1 && \
+	export LIBINPUT_STATIC=1 && \
+	cargo +stable build --release --target x86_64-unknown-linux-musl
+
+$(ROOTFS_DIR)/bin/zen: zen-build
+	mkdir -p $(ROOTFS_DIR)/bin
+	cp -u $(ZEN_DIR)/target/x86_64-unknown-linux-musl/release/zen $(ROOTFS_DIR)/bin/zen
+
 # Init System
 .PHONY: init-build
 init-build:
@@ -97,7 +114,7 @@ $(ROOTFS_DIR)/init: init-build
 	cp -u $(INIT_DIR)/target/x86_64-unknown-linux-musl/release/init_system $(ROOTFS_DIR)/init
 
 # Rootfs
-$(BUILD_DIR)/initramfs.cpio.gz: $(ROOTFS_DIR)/bin/busybox $(ROOTFS_DIR)/bin/nu $(ROOTFS_DIR)/init $(ROOTFS_DIR)/bin/git
+$(BUILD_DIR)/initramfs.cpio.gz: $(ROOTFS_DIR)/bin/busybox $(ROOTFS_DIR)/bin/nu $(ROOTFS_DIR)/init $(ROOTFS_DIR)/bin/git $(ROOTFS_DIR)/bin/zen
 	mkdir -p $(ROOTFS_DIR)/proc $(ROOTFS_DIR)/sys $(ROOTFS_DIR)/dev $(ROOTFS_DIR)/tmp
 	chmod +x $(ROOTFS_DIR)/init
 	cd $(ROOTFS_DIR) && find . -print0 | cpio --null --create --format=newc | gzip --best > ../initramfs.cpio.gz
