@@ -1,10 +1,11 @@
 KERNEL_DIR = linux
 BUSYBOX_DIR = busybox
 INIT_DIR = init_system
+NUSHELL_DIR = nushell
 BUILD_DIR = build
 ROOTFS_DIR = $(BUILD_DIR)/rootfs
 
-.PHONY: all run clean clean-all kernel busybox init submodule-init
+.PHONY: all run clean clean-all kernel busybox init nushell submodule-init
 
 all: $(BUILD_DIR)/bzImage $(BUILD_DIR)/initramfs.cpio.gz
 
@@ -27,13 +28,18 @@ busybox:
 	mkdir -p $(ROOTFS_DIR)
 	$(MAKE) -C $(BUSYBOX_DIR) install CONFIG_PREFIX=$(abspath $(ROOTFS_DIR))
 
+# Nushell
+nushell:
+	cd $(NUSHELL_DIR) && cargo build --release --target x86_64-unknown-linux-musl --workspace
+	cp $(NUSHELL_DIR)/target/x86_64-unknown-linux-musl/release/nu $(ROOTFS_DIR)/bin/nu
+
 # Init System
 init:
 	cd $(INIT_DIR) && cargo build --release --target x86_64-unknown-linux-musl
 	cp $(INIT_DIR)/target/x86_64-unknown-linux-musl/release/init_system $(ROOTFS_DIR)/init
 
 # Rootfs
-$(BUILD_DIR)/initramfs.cpio.gz: busybox init
+$(BUILD_DIR)/initramfs.cpio.gz: busybox nushell init
 	mkdir -p $(ROOTFS_DIR)/proc $(ROOTFS_DIR)/sys $(ROOTFS_DIR)/dev $(ROOTFS_DIR)/tmp
 	chmod +x $(ROOTFS_DIR)/init
 	cd $(ROOTFS_DIR) && find . -print0 | cpio --null -ov --format=newc | gzip > ../initramfs.cpio.gz
