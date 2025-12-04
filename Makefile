@@ -1,0 +1,1 @@
+qemu-system-x86_64 -kernel path/to/bzImage -initrd path/to/initrd
