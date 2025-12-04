@@ -76,3 +76,12 @@
 [submodule "ply"]
 	path = ply
 	url = https://github.com/dabeaz/ply.git
+[submodule "freetype"]
+	path = freetype
+	url = https://gitlab.freedesktop.org/freetype/freetype.git
+[submodule "fontconfig"]
+	path = fontconfig
+	url = https://gitlab.freedesktop.org/fontconfig/fontconfig.git
+[submodule "alacritty"]
+	path = alacritty
+	url = git@github.com:alacritty/alacritty.git
