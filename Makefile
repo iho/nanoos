@@ -5,17 +5,25 @@ NUSHELL_DIR = nushell
 ZEN_DIR = zen
 ALACRITTY_DIR = alacritty
 BUILD_DIR = build
+BR2_EXTERNAL_NANOOS := $(CURDIR)/br2-external/nanoos
 ROOTFS_DIR = $(BUILD_DIR)/rootfs
 PYTHON_STDLIB_DIR := $(firstword $(wildcard $(BUILD_DIR)/sysroot/lib/python3.*))
 PYTHON_VERSION := $(subst python,,$(notdir $(PYTHON_STDLIB_DIR)))
 
-.PHONY: all run clean clean-all kernel busybox init nushell submodule-init
+.PHONY: all run clean clean-all kernel busybox init nushell submodule-init buildroot-defconfig buildroot
 
 all: $(BUILD_DIR)/bzImage $(BUILD_DIR)/initramfs.cpio.gz
 
 # Initialize submodules if they are empty (helper)
 submodule-init:
 	git submodule update --init --recursive
+
+# Buildroot helpers
+buildroot-defconfig:
+	BR2_EXTERNAL=$(BR2_EXTERNAL_NANOOS) $(MAKE) -C buildroot nanoos_ostree_defconfig
+
+buildroot:
+	BR2_EXTERNAL=$(BR2_EXTERNAL_NANOOS) $(MAKE) -C buildroot
 
 # Kernel
 $(BUILD_DIR)/bzImage:
@@ -40,6 +48,11 @@ $(BUILD_DIR)/bzImage:
 	$(KERNEL_DIR)/scripts/config --file $(KERNEL_DIR)/.config --enable CONFIG_TIMERFD
 	$(KERNEL_DIR)/scripts/config --file $(KERNEL_DIR)/.config --enable CONFIG_EVENTFD
 	$(KERNEL_DIR)/scripts/config --file $(KERNEL_DIR)/.config --enable CONFIG_SHMEM
+	$(KERNEL_DIR)/scripts/config --file $(KERNEL_DIR)/.config --enable CONFIG_TMPFS
+	$(KERNEL_DIR)/scripts/config --file $(KERNEL_DIR)/.config --enable CONFIG_TMPFS_POSIX_ACL
+	$(KERNEL_DIR)/scripts/config --file $(KERNEL_DIR)/.config --enable CONFIG_MEMFD_CREATE
+	$(KERNEL_DIR)/scripts/config --file $(KERNEL_DIR)/.config --enable CONFIG_SECCOMP
+	$(KERNEL_DIR)/scripts/config --file $(KERNEL_DIR)/.config --enable CONFIG_SECCOMP_FILTER
 	$(KERNEL_DIR)/scripts/config --file $(KERNEL_DIR)/.config --enable CONFIG_INOTIFY_USER
 	$(KERNEL_DIR)/scripts/config --file $(KERNEL_DIR)/.config --enable CONFIG_FANOTIFY
 	$(KERNEL_DIR)/scripts/config --file $(KERNEL_DIR)/.config --enable CONFIG_FUTEX
@@ -141,8 +154,8 @@ $(ROOTFS_DIR)/init: init-build
 	cp -u $(INIT_DIR)/target/x86_64-unknown-linux-musl/release/init_system $(ROOTFS_DIR)/init
 
 # Rootfs
-$(BUILD_DIR)/initramfs.cpio.gz: $(ROOTFS_DIR)/bin/busybox $(ROOTFS_DIR)/bin/nu $(ROOTFS_DIR)/init $(ROOTFS_DIR)/bin/git $(ROOTFS_DIR)/bin/zen $(ROOTFS_DIR)/bin/alacritty
-	mkdir -p $(ROOTFS_DIR)/proc $(ROOTFS_DIR)/sys $(ROOTFS_DIR)/dev $(ROOTFS_DIR)/tmp
+$(BUILD_DIR)/initramfs.cpio.gz: $(ROOTFS_DIR)/bin/busybox $(ROOTFS_DIR)/bin/nu $(ROOTFS_DIR)/init $(ROOTFS_DIR)/bin/git $(ROOTFS_DIR)/bin/zen $(ROOTFS_DIR)/bin/alacritty $(ROOTFS_DIR)/bin/seatd
+	mkdir -p $(ROOTFS_DIR)/proc $(ROOTFS_DIR)/sys $(ROOTFS_DIR)/dev $(ROOTFS_DIR)/tmp $(ROOTFS_DIR)/run
 	# Include Python stdlib so embedded Python in zen can import encodings and other modules
 	@if [ -d "$(PYTHON_STDLIB_DIR)" ]; then \
 		mkdir -p $(ROOTFS_DIR)/lib; \
@@ -153,17 +166,32 @@ $(BUILD_DIR)/initramfs.cpio.gz: $(ROOTFS_DIR)/bin/busybox $(ROOTFS_DIR)/bin/nu $
 	fi
 	# Copy XKB data for xkbcommon so keyboard layouts load correctly
 	@if [ -d "$(BUILD_DIR)/sysroot/share/X11/xkb" ]; then \
-		src_dir=$(BUILD_DIR)/sysroot/share/X11/xkb; \
+		src_dir="$(BUILD_DIR)/sysroot/share/X11/xkb"; \
 	elif [ -d "/usr/share/X11/xkb" ]; then \
-		src_dir=/usr/share/X11/xkb; \
+		if [ -L "/usr/share/X11/xkb" ]; then \
+			src_dir=$$(readlink -f /usr/share/X11/xkb); \
+		else \
+			src_dir="/usr/share/X11/xkb"; \
+		fi; \
+	elif [ -d "/usr/share/xkeyboard-config-2" ]; then \
+		src_dir="/usr/share/xkeyboard-config-2"; \
 	else \
-		echo "XKB data not found in sysroot or host /usr/share/X11/xkb"; \
+		echo "XKB data not found in sysroot or host (/usr/share/X11/xkb or /usr/share/xkeyboard-config-2)"; \
 		exit 1; \
 	fi; \
-	mkdir -p $(ROOTFS_DIR)/share/X11; \
-	rsync -a --delete $$src_dir $(ROOTFS_DIR)/share/X11/
+	rm -rf $(ROOTFS_DIR)/share/X11/xkb; \
+	mkdir -p $(ROOTFS_DIR)/share/X11/xkb; \
+	rsync -aL --delete $$src_dir/ $(ROOTFS_DIR)/share/X11/xkb/
 	chmod +x $(ROOTFS_DIR)/init
 	cd $(ROOTFS_DIR) && find . -print0 | cpio --null --create --format=newc | gzip --best > ../initramfs.cpio.gz
+
+$(ROOTFS_DIR)/bin/seatd:
+	@if [ ! -x "$(BUILD_DIR)/sysroot/bin/seatd" ]; then \
+		echo "seatd binary not found in $(BUILD_DIR)/sysroot/bin. Run ./scripts/build_wayland.sh first."; \
+		exit 1; \
+	fi
+	mkdir -p $(ROOTFS_DIR)/bin
+	cp -u $(BUILD_DIR)/sysroot/bin/seatd $(ROOTFS_DIR)/bin/seatd
 
 run:
 	$(MAKE) $(BUILD_DIR)/bzImage
